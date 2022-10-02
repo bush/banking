@@ -1,6 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import ofx from 'ofx';
 import util from 'util';
+import * as dotenv from 'dotenv'
+dotenv.config();
+
+const dbFile = './db.json';
 
 const tags = {
   food: 'Food',
@@ -48,7 +52,7 @@ const tags = {
   ct: 'Candian Tire'
 }
 
-const profile = [
+const ccProfile = [
    // Household
    { name: 'THE HOME DEPOT #', tags: [tags.hardware, tags.depot, tags.house]},
    { name: 'LOWES #', tags: [tags.hardware, tags.lowes, tags.house]},
@@ -154,6 +158,7 @@ const profile = [
    { name: 'BULK BARN #', tags: [tags.food, tags.grocery]},
    { name: 'M&M FOOD MARKET #', tags: [tags.food, tags.grocery]},
    { name: 'BRANDON & MEGAN\'S NO F', tags: [tags.food, tags.grocery]},
+   { name: 'CHRIS & TANYA\'S NO FRI', tags: [tags.food, tags.grocery]},
 
    // Cody
    { name: 'REN\'S PETS', tags: [tags.cody, tags.pet]},
@@ -198,63 +203,173 @@ const profile = [
  ];
 
 // Process mastercard transactions
-let accounts;
-const db = './db.json';
 
-try {
-  const accountsJson = readFileSync(db, 'utf8');
-  accounts = JSON.parse(accountsJson);
-} catch(error) {
-  console.error(`Error reading ${db}`);
+function displayObject(object) {
+  console.log(util.inspect(object,{depth:10}));
 }
 
-const ofxFile = process.argv[2];
-let ofxData;
-
-try {
-  ofxData = readFileSync(ofxFile, 'utf8')
-} catch(error) {
-  console.error(`Error reading ${ofxFile}`);
+function loadDB(dbFile) {
+  try {
+    const dbJson = readFileSync(dbFile, 'utf8');
+    return JSON.parse(dbJson);
+  } catch(error) {
+    console.error(`Error reading ${dbFile}`);
+    throw new Error(error);
+  }
 }
 
-const data = ofx.parse(ofxData);
-const accountId = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS.CCACCTFROM.ACCTID;
-const transactions = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS.CCSTMTRS.BANKTRANLIST.STMTTRN
-
-if(!accounts[accountId]) {
-  accounts[accountId] = {};
-  accounts[accountId].type ??= 'Credit Card';
-  accounts[accountId].company = 'Mastercard';
-  accounts[accountId].bank = 'RBC';
-  accounts[accountId].partner = 'Westjet';
-  accounts[accountId].transactions = {};
-  //console.log(util.inspect(accounts,{depth:20}));
+function loadTransactionData(ofxFile) {
+  try {
+    const ofxData = readFileSync(ofxFile, 'utf8')
+    return ofx.parse(ofxData);
+  } catch(error) {
+    console.error(`Error reading ${ofxFile}`);
+    return null;
+  }
 }
 
-transactions.map( item => {
+function importAccountData(info) {
 
-  // Fix the date
-  const str = item.DTPOSTED;
-  const y = str.substr(0,4), m = str.substr(4,2), d = str.substr(6,2);
-  item.datePosted = new Date(y,parseInt(m,10)-1,d);
-  delete item.DTPOSTED;
+  const {data, accounts, db} = info;
 
-  // Rename the remaining keys
-  item.id = item.FITID;
-  item.type = item.TRNTYPE;
-  item.name = item.NAME;
-  item.amount = item.TRNAMT;
-  item.memo = item.MEMO;
-  const entry = profile.find( profileItem => item.name.match(profileItem.name) );
-  item.tags = entry ? entry.tags : 'None'
-  delete item.FITID;
-  delete item.TRNTYPE;
-  delete item.NAME;
-  delete item.TRNAMT;
-  delete item.MEMO;
+  for(const item of accounts) {
+    switch(item.type) {
+      case 'cc':
+        if(data.OFX && data.OFX.CREDITCARDMSGSRSV1 && data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS) {
+          const ccData = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS;
+          let transactions = null;
 
-  accounts[accountId].transactions[item.id] = item;
-});
+          if(Array.isArray(ccData)) {
+            transactions = ccData.find( (element, index) => element.CCSTMTRS.CCACCNTCCTFROM.ACCTID === item.accountId )
+            if(transactions) {
+              transcations = transaction.CCSTMTRS.BANKTRANLIST.STMTTRN;
+            }
 
-console.log(util.inspect(accounts,{depth:20}));
-writeFileSync(db,JSON.stringify(accounts,null,2));
+          } else {
+            if(ccData.CCSTMTRS.CCACCTFROM.ACCTID === item.accountId) {
+              transactions = ccData.CCSTMTRS.BANKTRANLIST.STMTTRN;
+            }
+          }
+
+          if(transactions) {
+            console.log(`Found CC Account ${item.accountId}`)
+            //displayObject(transactions)
+            processTransactions({db, account: item, transactions});
+          }
+        }
+        break;
+      case 'bank':
+        console.log('bank')
+        break;
+      default:
+    }
+
+  }
+
+
+  /*
+  let transactions, accountId = null;
+
+  /V/ RBC Credit Card
+  switch(thing.type) {
+
+  console.log('Looking for RBC Card')
+  if(data.OFX && data.OFX.CREDITCARDMSGSRSV1 && data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS) {
+    const ccData = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS;
+    if(Array.isArray(data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS)) {
+      console.log('Found array of accounts, looking for RBC ')
+      transactions = ccData.find( (element, index) => element.STMTRS.CCACCNTCCTFROM.ACCTID === RBC_CC_ACCOUNT_NO )
+    } else {
+      if(ccData.STMTRS.BANKACCTFROM.ACCTID === RBC_CC_ACCOUNT_NO) {
+        console.log('Found single account, checking to see if it\'s the rbc card.')
+        transactions = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS;
+      }
+    }
+  }
+
+  return transactions;
+  }
+
+  */
+}
+
+function processTransactions(data) {
+
+  const {db, account, transactions} = data;
+
+  const accountId = account.accountId;
+  const profile = account.profile;
+
+  if(!db[accountId]) {
+    db[accountId] = {};
+    db[accountId].name = account.name;
+    db[accountId].type = account.type;
+    db[accountId].transactions = {};
+  }
+
+  transactions.map( item => {
+
+    // Fix the date
+    const str = item.DTPOSTED;
+    const y = str.substr(0,4), m = str.substr(4,2), d = str.substr(6,2);
+    item.datePosted = new Date(y,parseInt(m,10)-1,d);
+    delete item.DTPOSTED;
+
+    // Rename the remaining keys
+    item.id = item.FITID;
+    item.type = item.TRNTYPE;
+    item.name = item.NAME;
+    item.amount = item.TRNAMT;
+    item.memo = item.MEMO;
+    const entry = profile.find( profileItem => item.name.match(profileItem.name) );
+    item.tags = entry ? entry.tags : 'None'
+    delete item.FITID;
+    delete item.TRNTYPE;
+    delete item.NAME;
+    delete item.TRNAMT;
+    delete item.MEMO;
+
+    db[accountId].transactions[item.id] = item;
+  });
+
+}
+
+function saveDB(dbFile, db) {
+  writeFileSync(dbFile,JSON.stringify(db,null,2));
+}
+
+// Accounts to scan for ...
+const accounts = [
+  {
+    name: process.env.CC1_NAME,
+    type: 'cc',
+    accountId: process.env.CC1_ACCOUNT_ID,
+    profile: ccProfile
+  },
+  {
+    name: process.env.BANK1_NAME,
+    type: 'bank',
+    bankId: process.env.BANK1_ACCOUNT_ID,
+    accountId: '...'
+  }
+];
+
+let ofxFile = process.argv[2];
+let accountData;
+let data;
+
+if(ofxFile) {
+ data = loadTransactionData(ofxFile);
+} else {
+  console.error('You must specify an OFX data file.');
+  process.exit();
+}
+
+const db = loadDB(dbFile);
+
+importAccountData({data, accounts, db})
+displayObject(db);
+
+
+// Save the database
+//saveDB(db,dbFile);
