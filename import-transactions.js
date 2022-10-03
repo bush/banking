@@ -52,6 +52,10 @@ const tags = {
   ct: 'Candian Tire'
 }
 
+const bankProfile = [
+
+];
+
 const ccProfile = [
    // Household
    { name: 'THE HOME DEPOT #', tags: [tags.hardware, tags.depot, tags.house]},
@@ -232,65 +236,53 @@ function importAccountData(info) {
 
   const {data, accounts, db} = info;
 
+  let MSGSV1, STMTTRNRS, STMTRS, ACCOUNT;
+
   for(const item of accounts) {
     switch(item.type) {
       case 'cc':
-        if(data.OFX && data.OFX.CREDITCARDMSGSRSV1 && data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS) {
-          const ccData = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS;
-          let transactions = null;
-
-          if(Array.isArray(ccData)) {
-            transactions = ccData.find( (element, index) => element.CCSTMTRS.CCACCNTCCTFROM.ACCTID === item.accountId )
-            if(transactions) {
-              transcations = transaction.CCSTMTRS.BANKTRANLIST.STMTTRN;
-            }
-
-          } else {
-            if(ccData.CCSTMTRS.CCACCTFROM.ACCTID === item.accountId) {
-              transactions = ccData.CCSTMTRS.BANKTRANLIST.STMTTRN;
-            }
-          }
-
-          if(transactions) {
-            console.log(`Found CC Account ${item.accountId}`)
-            //displayObject(transactions)
-            processTransactions({db, account: item, transactions});
-          }
-        }
+        console.log(`Scanning for credit card account ${item.accountId}`)
+        MSGSV1 = 'CREDITCARDMSGSRSV1';
+        STMTTRNRS = 'CCSTMTTRNRS';
+        STMTRS = 'CCSTMTRS';
+        ACCOUNT = 'CCACCTFROM';
         break;
       case 'bank':
-        console.log('bank')
+        console.log(`Scanning for bank account ${item.accountId}`)
+        MSGSV1 = 'BANKMSGSRSV1';
+        STMTTRNRS = 'STMTTRNRS';
+        STMTRS = 'STMTRS';
+        ACCOUNT = 'BANKACCTFROM';
         break;
       default:
+
     }
 
-  }
+    if(data.OFX && data.OFX[MSGSV1] && data.OFX[MSGSV1][STMTTRNRS]) {
+      const stmttrnrs = data.OFX[MSGSV1][STMTTRNRS];
+      let transactions = null;
 
+      if(Array.isArray(stmttrnrs)) {
+        transactions = stmttrnrs.find( (element, index) => element[STMTRS][ACCOUNT].ACCTID === item.accountId )
+        if(transactions) {
+          transactions = transactions[STMTRS].BANKTRANLIST.STMTTRN;
+        }
 
-  /*
-  let transactions, accountId = null;
-
-  /V/ RBC Credit Card
-  switch(thing.type) {
-
-  console.log('Looking for RBC Card')
-  if(data.OFX && data.OFX.CREDITCARDMSGSRSV1 && data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS) {
-    const ccData = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS;
-    if(Array.isArray(data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS)) {
-      console.log('Found array of accounts, looking for RBC ')
-      transactions = ccData.find( (element, index) => element.STMTRS.CCACCNTCCTFROM.ACCTID === RBC_CC_ACCOUNT_NO )
-    } else {
-      if(ccData.STMTRS.BANKACCTFROM.ACCTID === RBC_CC_ACCOUNT_NO) {
-        console.log('Found single account, checking to see if it\'s the rbc card.')
-        transactions = data.OFX.CREDITCARDMSGSRSV1.CCSTMTTRNRS;
+      } else {
+        if(stmttrnrs[STMTRS][ACCOUNT].ACCTID === item.accountId) {
+          transactions = stmttrnrs[STMTRS].BANKTRANLIST.STMTTRN;
+        }
       }
+
+      if(transactions) {
+        console.log(`Found Account ${item.accountId}`)
+        processTransactions({db, account: item, transactions});
+      }
+
+    } else {
+      console.log(`Account ${item.accountId} not found.`)
     }
   }
-
-  return transactions;
-  }
-
-  */
 }
 
 function processTransactions(data) {
@@ -349,8 +341,8 @@ const accounts = [
   {
     name: process.env.BANK1_NAME,
     type: 'bank',
-    bankId: process.env.BANK1_ACCOUNT_ID,
-    accountId: '...'
+    accountId: process.env.BANK1_ACCOUNT_ID,
+    profile: bankProfile
   }
 ];
 
@@ -368,7 +360,6 @@ if(ofxFile) {
 const db = loadDB(dbFile);
 
 importAccountData({data, accounts, db})
-displayObject(db);
 
 
 // Save the database
