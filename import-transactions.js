@@ -299,34 +299,47 @@ function processTransactions(data) {
     db[accountId].transactions = {};
   }
 
+  let newTransactions = 0;
+
   transactions.map( item => {
 
-    // Fix the date
-    const str = item.DTPOSTED;
-    const y = str.substr(0,4), m = str.substr(4,2), d = str.substr(6,2);
-    item.datePosted = new Date(y,parseInt(m,10)-1,d);
-    delete item.DTPOSTED;
+    if(!(item.FITID in db[accountId].transactions)) {
 
-    // Rename the remaining keys
-    item.id = item.FITID;
-    item.type = item.TRNTYPE;
-    item.name = item.NAME;
-    item.amount = item.TRNAMT;
-    item.memo = item.MEMO;
-    const entry = profile.find( profileItem => item.name.match(profileItem.name) );
-    item.tags = entry ? entry.tags : 'None'
-    delete item.FITID;
-    delete item.TRNTYPE;
-    delete item.NAME;
-    delete item.TRNAMT;
-    delete item.MEMO;
+      newTransactions++;
 
-    db[accountId].transactions[item.id] = item;
+      // Fix the date
+      const str = item.DTPOSTED;
+      const y = str.substr(0,4), m = str.substr(4,2), d = str.substr(6,2);
+      item.datePosted = new Date(y,parseInt(m,10)-1,d);
+      delete item.DTPOSTED;
+
+      // Rename the remaining keys
+      item.id = item.FITID;
+      item.type = item.TRNTYPE;
+      item.name = item.NAME;
+      item.amount = item.TRNAMT;
+      item.memo = item.MEMO;
+      const entry = profile.find( profileItem => item.name.match(profileItem.name) );
+      item.tags = entry ? entry.tags : 'None'
+      delete item.FITID;
+      delete item.TRNTYPE;
+      delete item.NAME;
+      delete item.TRNAMT;
+      delete item.MEMO;
+
+      db[accountId].transactions[item.id] = item;
+    }
   });
+
+  if(newTransactions) {
+    console.log(`Added ${newTransactions} transactions.`);
+  } else {
+    console.log('No new transactions added.');
+  }
 
 }
 
-function saveDB(dbFile, db) {
+function saveDB(db, dbFile) {
   writeFileSync(dbFile,JSON.stringify(db,null,2));
 }
 
@@ -363,4 +376,4 @@ importAccountData({data, accounts, db})
 
 
 // Save the database
-//saveDB(db,dbFile);
+saveDB(db,dbFile);
